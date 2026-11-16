@@ -8,3 +8,5 @@ Each release is a heading with its tag. The release workflow uses the words unde
   file for any checkpoint), `capture_values.py` (one real run's stage outputs), `bundle_shared.py` (the shared-view
   version), the page and the embeddable module.
 - Reads safetensors (single or sharded, memory-mapped) and PyTorch state dicts; other formats stop with what to convert to.
+- The page knows no model: colours and the Input and Output marks come from each group's `role` in the groups file
+  (or the role holding most of its weights), never from group or module names.

@@ -44,7 +44,7 @@ groups:
 | `skip` | repeated group | `in`: the row a copy's input also feeds; `pairs`: [from row, to row] residual links |
 | `chain` | group | `false` stops rows linking to the row below |
 | `unused` | group | `true` draws it grey and faded; the reader can hide it |
-| `role` | group or module | colour: `embed`, `attn_q`, `attn_k`, `attn_v`, `attn_out`, `ff_up`, `ff_down`, `norm`, `classifier`, `other` |
+| `role` | group or module | what it does: `embed`, `attn_q`, `attn_k`, `attn_v`, `attn_out`, `ff_up`, `ff_down`, `norm`, `classifier`, `other`. It sets the colour, and the page marks Input at the first `embed` group and Output at the last running `classifier` group. Without one, a group's role is the one holding most of its weights |
 | `m` | module | a tensor name or a prefix: every tensor under it is drawn (a weight as a grid, its bias as a strip beside it) |
 | `lie: flat` | module | lays a grid flat, for a table too long to stand up (a vocabulary) |
 | `texture` | module or top | image pixels on the long side (a vocabulary table wants 1024 or 2048) |

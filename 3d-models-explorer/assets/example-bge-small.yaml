@@ -1,0 +1,31 @@
+# BGE small (BAAI/bge-small-en-v1.5): a 12-layer BERT encoder. The sentence's embedding is the last layer's
+# [CLS] vector (sentence-transformers' CLS pooling), so the pooler in the file never runs.
+model: BGE small (bge-small-en-v1.5)
+scale: 64
+texture: 128
+flow:
+  - [Embeddings, 12 layers]
+  - [12 layers, Pooler]
+groups:
+  - name: Embeddings
+    role: embed
+    rows:
+      - [{m: embeddings.word_embeddings, lie: flat, texture: 1024, title: Word table (the vocabulary)}]
+      - [{m: embeddings.position_embeddings, title: Position table}, {m: embeddings.token_type_embeddings, title: Segment table}, {m: embeddings.position_ids, title: Position numbers}]
+      - [{m: embeddings.LayerNorm, title: "Embeddings: norm"}]
+  - name: 12 layers
+    role: attn_q
+    repeat: encoder.layer.{i}
+    skip: {in: 2, pairs: [[2, 5]]}   # post-norm: a layer's input is added back before each norm
+    rows:
+      - [attention.self.query, attention.self.key, attention.self.value]
+      - [attention.output.dense]
+      - [attention.output.LayerNorm]
+      - [intermediate.dense]
+      - [output.dense]
+      - [output.LayerNorm]
+  - name: Pooler
+    role: classifier
+    unused: true
+    rows:
+      - [pooler.dense]

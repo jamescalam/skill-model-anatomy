@@ -76,18 +76,20 @@ def draft(ck, model_name=None):
         after = [n for n in outside if n not in before]
         if before:
             emb = sorted(dedupe(sorted({module_of(n) for n in before})), key=lambda m: (describe(m)["role"] != "embed", m))   # tables, then norms
-            groups.append({"name": "Embeddings", "rows": [[entry(ck, m, names)] for m in emb]})
-        block = {"name": f"{n_layers} layers", "repeat": pat, "rows": rows}
+            groups.append({"name": "Embeddings", "role": "embed", "rows": [[entry(ck, m, names)] for m in emb]})
+        block = {"name": f"{n_layers} layers", "role": "attn_q", "repeat": pat, "rows": rows}
         groups.append(block)
         if after:
-            groups.append({"name": "Output", "rows": [[entry(ck, m, names)] for m in dedupe(sorted({module_of(n) for n in after}))]})
+            head = any(describe(module_of(n))["role"] == "classifier" for n in after)
+            groups.append({"name": "Output", "role": "classifier" if head else "other",
+                           "rows": [[entry(ck, m, names)] for m in dedupe(sorted({module_of(n) for n in after}))]})
         if before:
             flow.append(["Embeddings", block["name"]])
         if after:
             flow.append([block["name"], "Output"])
     else:   # no repeated block (a small or unusual model): one group, each module a row, in the file's order
         mods = dedupe(list(dict.fromkeys(module_of(n) for n in names)))
-        groups.append({"name": "Model", "rows": [[entry(ck, m, names)] for m in mods]})
+        groups.append({"name": "Model", "role": "other", "rows": [[entry(ck, m, names)] for m in mods]})
     spec = {"model": model_name or "Model", "scale": 64, "texture": 128}
     if flow:
         spec["flow"] = flow
@@ -99,7 +101,9 @@ HEAD = """# A draft from init_groups.py: check it against the model's code befor
 # groups: each is outlined and labelled, and holds `children` (other groups) or `rows` (what it draws).
 #   repeat: a name with {i}, for the repeated blocks; their `rows` names are relative to it.
 #   rows: top to bottom; modules in one row run side by side. {m: name, lie: flat} lays a long table flat.
-#   unused: true greys a part the model doesn't run.  role: sets a group's colour (embed, attn_q, ff_up, classifier, other).
+#   unused: true greys a part the model doesn't run.
+#   role: what the group does, which sets its colour and where the page marks input and output:
+#         embed (the input end), attn_q (a stack of layers), ff_up, norm, classifier (the output end), other.
 # flow: [from group, to group]: what feeds what between groups.  scale: weights per unit.  texture: image pixels.
 """
 

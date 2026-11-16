@@ -25,5 +25,6 @@ const p = ex.anchor("12 layers", "top");         // a point for a label, in scen
 | `box(name)` / `anchor(part, where)` | a group's Box3, a point on it |
 | `setPalette({...})` / `setTheme(name)` / `setDetail(0)` / `dispose()` | colours; low detail (`lowMemory: true` loads `atlas-half.png`) |
 
-The host's `scene.fog` is respected. The `module-*.html` pages in `assets/web/` each show one call; they are left
-out of a build, so copy one beside a built site to try it.
+The host's `scene.fog` is respected. `assets/web/module-demo.html` is a host page to try it: copy it beside a built
+site and open it, with `?glow=Embeddings,12 layers&dim=Output&lift=Output` (your own group names) to see those calls.
+A build leaves it out.

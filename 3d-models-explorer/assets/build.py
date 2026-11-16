@@ -75,21 +75,11 @@ PARTS = [
 ]
 PARTS = [(re.compile(p), v) for p, v in PARTS]
 WHOLE = [  # a name outside the repeated blocks -> role
+    (r"norm|ln_f|LayerNorm|layernorm", "norm"),   # first: "embeddings.LayerNorm" is a norm, not a table
     (r"embed|wte|wpe|word_embeddings|position|tok_embeddings|patch_embed|cls_token|pos_embed", "embed"),
-    (r"norm|ln_f|LayerNorm|layernorm", "norm"),
     (r"lm_head|classifier|score|(^|\.)head|pooler|qa_outputs|proj_out|output_layer", "classifier"),
 ]
 WHOLE = [(re.compile(p), r) for p, r in WHOLE]
-# Base GLiNER's own names, kept so its example groups file draws exactly as before.
-FIXED = {
-    "encoder.embeddings.word_embeddings": ("Word table (the vocabulary)", "embed"),
-    "encoder.embeddings.LayerNorm": ("Word table: norm", "norm"),
-    "encoder.encoder.rel_embeddings": ("Relative positions", "embed"),
-    "encoder.encoder.LayerNorm": ("Relative positions: norm", "norm"),
-    "classifier.0": ("Classifier: hidden layer", "classifier"),
-    "classifier.2": ("Classifier: output", "classifier"),
-}
-
 
 def describe(name):
     """A plain title, a colour role and the part of a layer for a module's name (the code name stays in `name`)."""
@@ -99,12 +89,6 @@ def describe(name):
             if rx.search(m.group(2)):
                 return dict(title=f"Layer {m.group(1)} · {t}", role=role, part=part, copy=int(m.group(1)))
         return dict(title=f"Layer {m.group(1)} · {m.group(2)}", role="other", part="other", copy=int(m.group(1)))
-    if name in FIXED:
-        return dict(title=FIXED[name][0], role=FIXED[name][1], part="other", copy=None)
-    if name.startswith("span_rep") or name.startswith(("count_embed", "count_pred")):   # base GLiNER's heads
-        head = "Span head" if name.startswith("span_rep") else "Count head"
-        last = name.split(".")
-        return dict(title=f"{head}: {'.'.join(last[-2:])}", role="span" if head == "Span head" else "count", part="other", copy=None)
     role = next((r for rx, r in WHOLE if rx.search(name)), "other")
     return dict(title=name, role=role, part="other", copy=None)
 
@@ -301,6 +285,9 @@ class Builder:
         d = max(d, THICK)
         self.last_mid = len(self.mods)
         d0 = describe(name)
+        gname = self.groups[gi].get("name")
+        if d0["title"] == name and gname:   # no plain name for it: its group's name and the code name's last parts
+            d0["title"] = f"{gname}: {'.'.join(name.split('.')[-2:])}"
         for k in ("title", "role"):   # a groups file may name a module's title or colour role itself
             if k in entry:
                 d0[k] = entry[k]

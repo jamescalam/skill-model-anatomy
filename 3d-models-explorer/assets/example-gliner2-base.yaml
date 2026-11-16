@@ -38,16 +38,17 @@ scale: 64        # weights per unit of length
 texture: 128     # texture pixels on a grid's long side
 groups:
   - name: Tokenization / embeddings
+    role: embed
     rows:
-      - [{m: encoder.embeddings.word_embeddings, lie: flat, texture: 2048}]
-      - [encoder.embeddings.LayerNorm]
+      - [{m: encoder.embeddings.word_embeddings, lie: flat, texture: 2048, title: Word table (the vocabulary)}]
+      - [{m: encoder.embeddings.LayerNorm, title: "Word table: norm"}]
   - name: Encoder
     arrange: across
     children:
       - name: Relative positions
         rows:
-          - [encoder.encoder.rel_embeddings]
-          - [encoder.encoder.LayerNorm]
+          - [{m: encoder.encoder.rel_embeddings, title: Relative positions, role: embed}]
+          - [{m: encoder.encoder.LayerNorm, title: "Relative positions: norm"}]
       - name: 24 layers
         repeat: encoder.encoder.layer.{i}
         skip: {in: 2, pairs: [[2, 5]]}   # the residual stream: a layer's input skips round attention, then round the feed-forward
@@ -61,9 +62,10 @@ groups:
   - arrange: across
     children:
       - name: Classifier head
+        role: classifier
         rows:
-          - [classifier.0]
-          - [classifier.2]
+          - [{m: classifier.0, title: "Classifier: hidden layer"}]
+          - [{m: classifier.2, title: "Classifier: output"}]
       - name: Span head
         unused: true
         rows:

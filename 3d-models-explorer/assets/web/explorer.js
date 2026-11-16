@@ -21,20 +21,20 @@ const THEMES = {
     zero: "#55607a", pos: "#f59e42", neg: "#4aa3f0", side: "#2f3647", greyA: "#2a2e37", greyB: "#555b68", fadeTo: "#4a5266", ring: "#0e1014",
     path: "#a8b3cc", pathUnused: "#515764", reads: "#b7f542", feeds: "#ff5cf0", self: "#ffffff",
     roles: { embed: "#d1a67a", norm: "#8e96a5", attn_q: "#7c86ff", attn_k: "#9d82ff", attn_v: "#bd84ff", attn_out: "#2dd4bf",
-      ff_up: "#fbd23b", ff_down: "#e8b13d", classifier: "#fb7185", span: "#6e7480", count: "#6e7480", other: "#6e7480" },
+      ff_up: "#fbd23b", ff_down: "#e8b13d", classifier: "#fb7185", other: "#6e7480" },
   },
   light: {
     bg: "#f6f5f1", panel: "rgba(255,255,255,0.94)", text: "#1a1d25", muted: "#4d5766", line: "#d6d6ce",
     zero: "#b4bac7", pos: "#d9561a", neg: "#1f6fd1", side: "#8c94a5", greyA: "#e1e1db", greyB: "#b0b2ab", fadeTo: "#d4d6dc", ring: "#ffffff",
     path: "#566683", pathUnused: "#a9acb3", reads: "#3f7d00", feeds: "#a21caf", self: "#111111",
     roles: { embed: "#a7763f", norm: "#69727f", attn_q: "#4a54e0", attn_k: "#7650e0", attn_v: "#a24fd6", attn_out: "#0d9488",
-      ff_up: "#d99a00", ff_down: "#a8790f", classifier: "#e11d48", span: "#9aa0aa", count: "#9aa0aa", other: "#9aa0aa" },
+      ff_up: "#d99a00", ff_down: "#a8790f", classifier: "#e11d48", other: "#9aa0aa" },
   },
 };
-const ROLE_ORDER = ["embed", "attn_q", "attn_k", "attn_v", "attn_out", "ff_up", "ff_down", "norm", "classifier", "span", "count", "other"];
+const ROLE_ORDER = ["embed", "attn_q", "attn_k", "attn_v", "attn_out", "ff_up", "ff_down", "norm", "classifier", "other"];
 const ROLE_NAME = { embed: "Word and position tables", attn_q: "Attention: query", attn_k: "Attention: key", attn_v: "Attention: value",
   attn_out: "Attention: output", ff_up: "Feed-forward: expand", ff_down: "Feed-forward: shrink", norm: "Normalisation",
-  classifier: "Output head", span: "Span head", count: "Count head", other: "Other" };
+  classifier: "Output head", other: "Other" };
 let themeName = "dark", T = THEMES.dark;
 const fmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
 const col = (h) => new THREE.Color(h);
@@ -69,7 +69,7 @@ const vert = `
   }`;
 const frag = `
   uniform sampler2D uAtlas; uniform vec3 uZero, uPos, uNeg, uSide, uGreyA, uGreyB, uBg, uReads, uFeeds, uSelf, uFadeTo, uRing;
-  uniform vec3 uRoles[12]; uniform float uMode; uniform float uCellId; uniform vec2 uCell; uniform float uAlpha;
+  uniform vec3 uRoles[10]; uniform float uMode; uniform float uCellId; uniform vec2 uCell; uniform float uAlpha;
   varying vec2 vUv; varying float vFront; varying vec4 vRect; varying float vRole; varying vec4 vState; varying vec2 vSize; varying float vId;
   void main() {
     // the picture of this tensor's weights: u across, t down the atlas (t counts from the top of the image)
@@ -333,11 +333,10 @@ function card(mi) {   // one line by default (the stage and its shape); a tap op
 }
 
 // ---- groups, labels ---------------------------------------------------------------------------------------
-const roleOfGroup = (name, unused) => (unused ? "other" : /Tokeniz/.test(name) ? "embed" : /Encoder/.test(name) ? "attn_q" : /Classifier/.test(name) ? "classifier" : "other");
-function groupColour(g, topName) {   // the top group's role from scene.json (build.py sets it); older scenes guess from the name
+function groupColour(g, topName) {   // the top group's role from scene.json: the groups file's `role`, else build.py's guess from its weights
   if (g.unused) return T.pathUnused;
   const top = model.groups.find((x) => x.outline && x.name === topName);
-  return T.roles[(top && top.role) || roleOfGroup(topName, false)] || T.roles.other;
+  return T.roles[(top && top.role) || "other"] || T.roles.other;
 }
 function topOf(gi) {
   let g = model.groups[gi], top = g.outline ? gi : -1;
@@ -387,18 +386,28 @@ function buildDetailLabels(data) {
     layerLabels.push({ ...l, level: 2, copy: +c });
   }
   layerLabels.forEach((l) => { l.lab.visible = false; });
-  // where a post goes in and where the decision comes out
-  const emb = groupObjs.find((o) => /Tokeniz/.test(o.g.name || "")), cls = groupObjs.find((o) => /Classifier/.test(o.g.name || ""));
-  if (emb) extraLabels.push(addLabel("Post in ↓", new THREE.Vector3(emb.box.min.x - 2, emb.box.max.y + 3, emb.box.max.z), "io", [1, 1]));
-  if (cls) extraLabels.push(addLabel("Decision out ↓", new THREE.Vector3((cls.box.min.x + cls.box.max.x) / 2, cls.box.min.y - 2, cls.box.max.z), "io", [0.5, 0]));
+  const copies = [...byCopy.keys()].map(Number).sort((x, y) => x - y);   // a few layer numbers show from afar: the first, middle and last
+  sparseCopies = new Set([copies[0], copies[copies.length >> 1], copies[copies.length - 1]]);
+  // where the input goes in and the output comes out, from the groups' roles (never their names): the first group
+  // whose role is embed (else the first group), and the last running group whose role is classifier (else the last running one)
+  const [inG, outG] = ioGroups(groupObjs.map((o) => o.g));
+  const emb = groupObjs.find((o) => o.g === inG), cls = groupObjs.find((o) => o.g === outG);
+  if (emb) extraLabels.push(addLabel("Input ↓", new THREE.Vector3(emb.box.min.x - 2, emb.box.max.y + 3, emb.box.max.z), "io", [1, 1]));
+  if (cls) extraLabels.push(addLabel("Output ↓", new THREE.Vector3((cls.box.min.x + cls.box.max.x) / 2, cls.box.min.y - 2, cls.box.max.z), "io", [0.5, 0]));
 }
-let homeDist = 0;
+function ioGroups(groups) {   // [input group, output group] of a scene's outlined groups, by role
+  const run = groups.filter((g) => g.outline && !g.unused), tops = run.filter((g) => g.path.length === 1);
+  const inG = run.find((g) => g.role === "embed") || tops[0] || null;
+  const outG = [...run].reverse().find((g) => g.role === "classifier" && g !== inG) || [...tops].reverse().find((g) => g !== inG) || null;
+  return [inG, outG];
+}
+let homeDist = 0, sparseCopies = new Set();
 function updateDetail() {   // which detail labels may show: the selected layer's, and a few when close; the culling in declutter() does the rest
   if (!homeDist) return;
   const r = camera.position.distanceTo(controls.target) / homeDist;
   const sel = target() >= 0 ? model.modules[target()].copy : null;
   for (const l of layerLabels) {
-    if (l.level === 1) { const mine = sel != null && sel === l.copy, sparse = r < 0.5 && (l.copy === 0 || l.copy === 11 || l.copy === 23); l.lab.visible = mine || sparse; l.rank = mine ? 3 : 4; }
+    if (l.level === 1) { const mine = sel != null && sel === l.copy, sparse = r < 0.5 && sparseCopies.has(l.copy); l.lab.visible = mine || sparse; l.rank = mine ? 3 : 4; }
     else l.lab.visible = sel != null && sel === l.copy;
   }
   for (const o of groupObjs) if (o.sub) o.lab.visible = r < 0.5 && (!o.g.unused || showUnused);
@@ -639,7 +648,7 @@ renderer.domElement.addEventListener("pointerleave", () => {
 let settleTimer = 0;
 function settleSoon() { clearTimeout(settleTimer); settleTimer = setTimeout(() => { updateDetail(); labels.render(scene3, camera); declutter(); }, 120); }
 function declutter() {
-  // Priority: Post in / Decision out, group names, the selected layer (and its parts), a few layer numbers, part names inside a group.
+  // Priority: Input / Output, group names, the selected layer (and its parts), a few layer numbers, part names inside a group.
   // A label that touches another label or a panel is hidden, at most 8 show, and the group names may slide to find room.
   const cands = [...extraLabels.map((l) => ({ el: l.el, vis: true, rank: 1 })), ...groupObjs.map((o) => ({ el: o.lab.element, vis: o.lab.visible, rank: o.sub ? 5 : 2 })),
     ...layerLabels.map((l) => ({ el: l.el, vis: l.lab.visible, rank: l.level === 1 ? l.rank || 4 : 3 }))].filter((o) => o.vis).sort((a, b) => a.rank - b.rank);

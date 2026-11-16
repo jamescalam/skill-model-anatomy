@@ -4,10 +4,10 @@
 //   import { createExplorer } from "./explorer-module.js";
 //   const ex = createExplorer({ scene, camera, base: "./", theme: "dark", height: 100 });
 //   await ex.load();                                   // fetch scene.json + atlas.png (call it when the drop is near)
-//   ex.highlight("Encoder", "#6cff8f", 1);             // glow a part (0..1)
-//   ex.dim(["Span head", "Count head"], 0.9);          // darken parts (0..1)
-//   ex.lift(["Span head", "Count head"], t);            // slide parts straight up, t 0..1, a dashed outline stays behind
-//   ex.anchor("Encoder", "top")                         // a point on a part (or the whole model) in scene coordinates, for a label
+//   ex.highlight("12 layers", "#6cff8f", 1);           // glow a part (0..1)
+//   ex.dim(["Output"], 0.9);                          // darken parts (0..1)
+//   ex.lift(["Output"], t);                           // slide parts straight up, t 0..1, a dashed outline stays behind
+//   ex.anchor("12 layers", "top")                       // a point on a part (or the whole model) in scene coordinates, for a label
 //
 // It draws with the host's renderer and loop: no renderer, loop, controls, label or panel in here. It imports the bare
 // "three" (0.160.0 is what the explorer was built on); the host's import map or bundler decides which copy that is.
@@ -18,11 +18,11 @@ import * as THREE from "three";
 
 const THEMES = {
   dark: { path: "#a8b3cc", pathUnused: "#515764",
-    roles: { embed: "#d1a67a", norm: "#8e96a5", attn_q: "#7c86ff", attn_k: "#9d82ff", attn_v: "#bd84ff", attn_out: "#2dd4bf", ff_up: "#fbd23b", ff_down: "#e8b13d", classifier: "#fb7185", span: "#6e7480", count: "#6e7480", other: "#6e7480" } },
+    roles: { embed: "#d1a67a", norm: "#8e96a5", attn_q: "#7c86ff", attn_k: "#9d82ff", attn_v: "#bd84ff", attn_out: "#2dd4bf", ff_up: "#fbd23b", ff_down: "#e8b13d", classifier: "#fb7185", other: "#6e7480" } },
   light: { path: "#566683", pathUnused: "#a9acb3",
-    roles: { embed: "#a7763f", norm: "#69727f", attn_q: "#4a54e0", attn_k: "#7650e0", attn_v: "#a24fd6", attn_out: "#0d9488", ff_up: "#d99a00", ff_down: "#a8790f", classifier: "#e11d48", span: "#9aa0aa", count: "#9aa0aa", other: "#9aa0aa" } },
+    roles: { embed: "#a7763f", norm: "#69727f", attn_q: "#4a54e0", attn_k: "#7650e0", attn_v: "#a24fd6", attn_out: "#0d9488", ff_up: "#d99a00", ff_down: "#a8790f", classifier: "#e11d48", other: "#9aa0aa" } },
 };
-const ROLE_ORDER = ["embed", "attn_q", "attn_k", "attn_v", "attn_out", "ff_up", "ff_down", "norm", "classifier", "span", "count", "other"];
+const ROLE_ORDER = ["embed", "attn_q", "attn_k", "attn_v", "attn_out", "ff_up", "ff_down", "norm", "classifier", "other"];
 
 const vert = `
   attribute vec4 iUv; attribute float iRole; attribute vec4 iGlow; attribute float iDim; attribute float iBoost; attribute float iLift;
@@ -37,7 +37,7 @@ const vert = `
     #include <fog_vertex>
   }`;
 const frag = `
-  uniform sampler2D uAtlas; uniform vec3 uRoles[12]; uniform vec3 uBase; uniform float uUseBase; uniform float uSideMul;
+  uniform sampler2D uAtlas; uniform vec3 uRoles[10]; uniform vec3 uBase; uniform float uUseBase; uniform float uSideMul;
   varying vec2 vUv; varying float vFront; varying vec4 vRect; varying float vRole; varying vec4 vGlow; varying float vDim; varying float vBoost; varying vec2 vSize; varying vec3 vWorld;
   uniform vec3 uRimColor; uniform float uRimAmount; uniform float uRimWidth; uniform float uRimFront; uniform vec3 uRimN; uniform float uRimOffset; uniform float uRimSoft;
   #include <fog_pars_fragment>
@@ -193,7 +193,7 @@ export function createExplorer({ scene, camera = null, base = "./", theme = "dar
           }
           return bb;
         });
-        // the 24 layers, one by one (a module's `copy` is its layer number)
+        // the repeated block, copy by copy (a module's `copy` is its layer number)
         const cc = new THREE.Vector3(cx, cy, cz);
         model.modules.forEach((m, mi) => {
           if (m.copy == null) return;
@@ -283,7 +283,7 @@ export function createExplorer({ scene, camera = null, base = "./", theme = "dar
     },
     // Slide parts straight up and away, t from 0 to 1 (scrub it both ways; 0 draws exactly what it did before). distance is in root units
     // (default: 30% of the model's height). A dashed outline stays where each part was (fading in with t), the lifted cubes stay visible
-    // (use dim() to ghost them), and links into parts that never run (Span head, Count head) fade out with it.
+    // (use dim() to ghost them), and links into parts that never run (unused groups) fade out with it.
     lift(names, t = 1, opts = {}) {
       if (!loaded) { queued.push(["lift", [names, t, opts]]); return api; }
       t = Math.max(0, Math.min(1, t));

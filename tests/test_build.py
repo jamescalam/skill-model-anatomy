@@ -181,3 +181,53 @@ def test_no_private_paths_in_the_skill():
         if p.is_file() and ".git" not in p.parts and p.suffix in {".md", ".py", ".js", ".html", ".yaml", ".yml", ".json"}:
             s = p.read_text(errors="ignore")
             assert ("/ho" + "me/") not in s and ("/Us" + "ers/") not in s, p
+
+
+def io_groups(groups):
+    """Runs the page's own ioGroups() (explorer.js) on a scene's groups with node, if node is here."""
+    src = (ASSETS / "web" / "explorer.js").read_text()
+    a = src.index("function ioGroups(groups) {"); b = src.index("\n}\n", a) + 3
+    js = src[a:b] + f"const [i, o] = ioGroups({json.dumps(groups)}); console.log(JSON.stringify([i && i.name, o && o.name]));"
+    r = subprocess.run(["node", "-e", js], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_roles_come_from_the_groups_file_not_names(tmp_path):
+    """Made-up group names: colours and the Input/Output marks follow `role` (and the weights), never a name."""
+    t = gpt2(layers=2); t["extra.weight"] = w(8, 32); ck = tmp_path / "m.safetensors"; write_safetensors(ck, t)
+    g = tmp_path / "g.yaml"
+    g.write_text(yaml.safe_dump({"model": "Made up", "flow": [["Zorp", "Quux stack"], ["Quux stack", "Blint"], ["Quux stack", "Frob"]], "groups": [
+        {"name": "Zorp", "rows": [[{"m": "wte", "lie": "flat"}], ["wpe"]]},              # no role: its weights say embed
+        {"name": "Quux stack", "repeat": "h.{i}", "rows": [["ln_1"], ["attn.c_attn"], ["attn.c_proj"], ["ln_2"], ["mlp.c_fc"], ["mlp.c_proj"]]},
+        {"arrange": "across", "children": [
+            {"name": "Blint", "role": "classifier", "rows": [["ln_f"]]},              # a norm, but the file says classifier
+            {"name": "Frob", "role": "classifier", "unused": True, "rows": [["extra"]]}]}]}))
+    r = run("build.py", ck, g, tmp_path / "site")
+    assert r.returncode == 0, r.stderr
+    scene = json.loads((tmp_path / "site" / "scene.json").read_text())
+    roles = {x["name"]: x.get("role") for x in scene["groups"] if x["outline"]}
+    assert roles["Zorp"] == "embed" and roles["Quux stack"] == "attn_q" and roles["Blint"] == "classifier"
+    titles = {m["name"]: m["title"] for m in scene["modules"]}
+    assert titles["ln_f"] == "Blint: ln_f"     # no plain name for it: its group's name
+    if subprocess.run(["node", "--version"], capture_output=True).returncode == 0:
+        assert io_groups(scene["groups"]) == ["Zorp", "Blint"]   # Frob is unused, so Blint is where it comes out
+
+
+def test_the_page_knows_no_model():
+    """The page and module have no model's group or module names in them: everything comes from scene.json."""
+    for f in ("explorer.js", "explorer-module.js", "index.html", "module-demo.html"):
+        s = (ASSETS / "web" / f).read_text()
+        for word in ("GLiNER", "Tokeniz", "Encoder", "Classifier", "Span head", "Count head", "DeBERTa", "24 layers", "Decision out"):
+            assert word not in s, (f, word)
+    assert sorted(p.name for p in (ASSETS / "web").glob("module-*.html")) == ["module-demo.html"]
+
+
+def test_the_example_builds_the_same_roles(tmp_path):
+    """The hand-made example's groups file loads and names its own roles and titles."""
+    spec = yaml.safe_load((ASSETS / "example-gliner2-base.yaml").read_text())
+    assert spec["groups"][0]["role"] == "embed"
+    assert build.describe("classifier.0")["role"] == "classifier"
+    assert build.describe("span_rep.span_rep_layer.project_start.0")["role"] == "other"
+    assert build.describe("embeddings.LayerNorm")["role"] == "norm"   # BERT's norm beside its tables
+    assert build.describe("embeddings.word_embeddings")["role"] == "embed"
