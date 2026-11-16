@@ -1,10 +1,10 @@
 ---
-name: 3d-models-explorer
+name: model-anatomy
 description: Use when someone wants to see a neural network in 3D, to visualise or explore a model's architecture or weights, embed a model diagram in an article, or make a "model explorer" page from a safetensors or PyTorch checkpoint. It builds a static page where every tensor is drawn at its real size with its real weights, in named groups with data-flow links and a hover trace.
 license: MIT
 ---
 
-# 3D models explorer
+# Model Anatomy
 
 You turn a model checkpoint into a static web page: a 3D model where every tensor is a slab at its true shape,
 coloured by its real weights, outlined in groups the reader understands ("Embeddings", "24 layers", "Output head").

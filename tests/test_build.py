@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import yaml
 
-ASSETS = Path(__file__).resolve().parent.parent / "3d-models-explorer" / "assets"
+ASSETS = Path(__file__).resolve().parent.parent / "model-anatomy" / "assets"
 sys.path.insert(0, str(ASSETS))
 import build  # noqa: E402
 import init_groups  # noqa: E402
