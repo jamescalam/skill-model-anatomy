@@ -1,0 +1,84 @@
+# Base GLiNER (fastino/GLiNER2.5-Decide): what each part of the checkpoint is, in the order data flows through it.
+#
+# A group is outlined and labelled. It holds either `children` (other groups) or `rows` (what it draws).
+#   arrange: down (default) or across, for its children
+#   unused: true draws the group grey and faded
+#   repeat: a name with {i}, for blocks that repeat (the 24 layers); `rows` names are then relative to it,
+#           and the copies stack back in depth
+#   rows: top to bottom; each row is a list of modules side by side (they run in parallel)
+#   a module is a tensor name or a prefix: every tensor under it is drawn (a weight as a grid, its bias
+#   as a strip beside it). {m: name, lie: flat} lays a grid flat, for a table too long to stand up.
+# A group without a name only arranges (no outline). Every tensor must land in exactly one group: the
+# build lists any that don't under "Other".
+# flow: [from group, to group, (side)]: what feeds what between groups; a side link goes to every copy of a repeated block.
+flow:
+  - [Tokenization / embeddings, 24 layers]
+  - [Relative positions, 24 layers, side, [0, 1]]   # relative positions shape the attention scores: query and key only, never value
+  - [24 layers, Classifier head]
+  - [24 layers, Span head]
+# links: [from module, to module, (kind)] by exact module name; "@Group" is that group's output.
+# The count head (gliner2 layers.py): count_pred reads the encoder's [P] token and says how many; that count picks the
+# step of pos_embedding, which feeds the GRU's input; the label embeddings are the GRU's start state and go again into
+# the projector; its output meets the span head's output.
+links:
+  - ["@24 layers", count_pred.0]
+  - [count_pred.0, count_pred.2]
+  - [count_pred.2, count_embed.pos_embedding, side]
+  - [count_embed.pos_embedding, count_embed.gru.weight_ih_l0]
+  - [count_embed.pos_embedding, count_embed.gru.bias_ih_l0]
+  - ["@24 layers", count_embed.gru.weight_hh_l0]
+  - ["@24 layers", count_embed.gru.bias_hh_l0]
+  - [count_embed.gru.weight_ih_l0, count_embed.projector.0]
+  - [count_embed.gru.weight_hh_l0, count_embed.projector.0]
+  - ["@24 layers", count_embed.projector.0]
+  - [count_embed.projector.0, count_embed.projector.2]
+  - [count_embed.projector.2, span_rep.span_rep_layer.out_project.3, side]
+model: Base GLiNER (GLiNER2.5-Decide)
+scale: 64        # weights per unit of length
+texture: 128     # texture pixels on a grid's long side
+groups:
+  - name: Tokenization / embeddings
+    rows:
+      - [{m: encoder.embeddings.word_embeddings, lie: flat, texture: 2048}]
+      - [encoder.embeddings.LayerNorm]
+  - name: Encoder
+    arrange: across
+    children:
+      - name: Relative positions
+        rows:
+          - [encoder.encoder.rel_embeddings]
+          - [encoder.encoder.LayerNorm]
+      - name: 24 layers
+        repeat: encoder.encoder.layer.{i}
+        skip: {in: 2, pairs: [[2, 5]]}   # the residual stream: a layer's input skips round attention, then round the feed-forward
+        rows:
+          - [attention.self.query_proj, attention.self.key_proj, attention.self.value_proj]
+          - [attention.output.dense]
+          - [attention.output.LayerNorm]
+          - [intermediate.dense]
+          - [output.dense]
+          - [output.LayerNorm]
+  - arrange: across
+    children:
+      - name: Classifier head
+        rows:
+          - [classifier.0]
+          - [classifier.2]
+      - name: Span head
+        unused: true
+        rows:
+          - [span_rep.span_rep_layer.project_start.0, span_rep.span_rep_layer.project_end.0]
+          - [span_rep.span_rep_layer.project_start.3, span_rep.span_rep_layer.project_end.3]
+          - [span_rep.span_rep_layer.out_project.0]
+          - [span_rep.span_rep_layer.out_project.3]
+      - name: Count head
+        unused: true
+        chain: false     # wired by `links` above: it isn't a plain top-to-bottom stack
+        rows:
+          - [count_embed.pos_embedding]
+          - [count_embed.gru.weight_ih_l0, count_embed.gru.weight_hh_l0]
+          - [count_embed.gru.bias_ih_l0, count_embed.gru.bias_hh_l0]
+          - [count_embed.projector.0]
+          - [count_embed.projector.2]
+          - [count_pred.0]
+          - [count_pred.2]

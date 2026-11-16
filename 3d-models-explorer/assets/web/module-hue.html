@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><title>module: glow hue</title>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script></head><body style="margin:0;background:#060906">
+<script type="module">
+import * as THREE from "three"; import { createExplorer } from "./explorer-module.js";
+const q = new URLSearchParams(location.search), boost = Number(q.get("boost") || 1);
+const renderer = new THREE.WebGLRenderer({ antialias: false }); renderer.setSize(600, 400); document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(40, 1.5, 0.1, 2000); camera.position.set(0, -10, 120); camera.lookAt(-30, -20, 0);
+const ex = createExplorer({ scene, camera, base: "./" });
+ex.setPalette({ base: "#2f6f4a" }).highlight("Classifier head", "#ffb547", 1, boost);
+await ex.load();
+const rt = new THREE.WebGLRenderTarget(600, 400, { type: THREE.FloatType }); renderer.setRenderTarget(rt); renderer.render(scene, camera);
+const buf = new Float32Array(600 * 400 * 4); renderer.readRenderTargetPixels(rt, 0, 0, 600, 400, buf); renderer.setRenderTarget(null);
+let best = [0, 0, 0]; for (let i = 0; i < buf.length; i += 4) if (buf[i] > best[0]) best = [buf[i], buf[i + 1], buf[i + 2]];
+window.__hue = { boost, brightest: best.map((x) => +x.toFixed(2)), gOverR: +(best[1] / best[0]).toFixed(2), bOverR: +(best[2] / best[0]).toFixed(2) };
+</script></body></html>

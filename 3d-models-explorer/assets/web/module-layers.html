@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><title>module: one layer lit</title>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script></head><body style="margin:0;background:#060906">
+<script type="module">
+import * as THREE from "three"; import { createExplorer } from "./explorer-module.js";
+const q = new URLSearchParams(location.search), n = Number(q.get("layer") || 13);
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(700, 450); document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color("#060906");
+if (q.has("fog")) scene.fog = new THREE.FogExp2("#060906", Number(q.get("fog")));
+const camera = new THREE.PerspectiveCamera(40, 700 / 450, 0.1, 2000); 
+const ex = createExplorer({ scene, camera, base: "./" });
+ex.setPalette({ base: "#2f6f4a" }).highlightLayer(n, "#6cff8f", 1, 1.5);
+if (q.has("slab")) ex.layerSlab(n, "#6cff8f", Number(q.get("slab") || 1), 1.5);   // BEFORE load(): queued
+await ex.load();
+const b = ex.layerBox(n), c = b.getCenter(new THREE.Vector3());
+camera.position.set(c.x + 60, c.y + 25, c.z + 70); camera.lookAt(c);
+renderer.render(scene, camera);
+// the brightest green on screen in a float target: what a bloom pass would see
+const rt = new THREE.WebGLRenderTarget(700, 450, { type: THREE.FloatType }); renderer.setRenderTarget(rt); renderer.render(scene, camera);
+const buf = new Float32Array(700 * 450 * 4); renderer.readRenderTargetPixels(rt, 0, 0, 700, 450, buf); renderer.setRenderTarget(null);
+let mx = 0; for (let i = 0; i < buf.length; i += 4) mx = Math.max(mx, buf[i + 1]);
+window.__layers = { maxGreen: +mx.toFixed(2), count: ex.layerCount, box: [b.min.toArray(), b.max.toArray()].map((a) => a.map((x) => +x.toFixed(1))), n };
+</script></body></html>

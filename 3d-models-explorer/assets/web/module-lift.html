@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><title>module: lift and anchor</title>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script></head><body style="margin:0;background:#060906">
+<script type="module">
+// ?t=0..1 lifts the Span and Count heads; the page also checks that lift 0 draws exactly what no lift draws.
+import * as THREE from "three"; import { createExplorer } from "./explorer-module.js";
+const q = new URLSearchParams(location.search), t = Number(q.get("t") ?? 1), W = 700, H = 450;
+const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true }); renderer.setSize(W, H); document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color("#060906");
+const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 2000);
+const ex = createExplorer({ scene, camera, base: "./" });
+ex.setPalette({ base: "#2f6f4a" });
+ex.lift(["Span head", "Count head"], t);   // BEFORE load(): queued
+const early = ex.anchor("Encoder");         // null before load
+await ex.load();
+const c = ex.anchor(null, "centre"), top = ex.anchor("Classifier head", "top");
+const sp = ex.anchor("Span head", "centre"), look = new THREE.Vector3(sp.x + 10, sp.y - 15 * t, sp.z);   // the heads, lifted or not
+camera.position.set(look.x + 55, look.y + 25, look.z + 110); camera.lookAt(look);
+const hash = () => { renderer.render(scene, camera); const b = new Uint8Array(W * H * 4); renderer.getContext().readPixels(0, 0, W, H, renderer.getContext().RGBA, renderer.getContext().UNSIGNED_BYTE, b); let h = 0; for (let i = 0; i < b.length; i++) h = (h * 31 + b[i]) >>> 0; return h; };
+renderer.render(scene, camera);
+const shown = hash();
+ex.clear(); const plain = hash();
+ex.lift(["Span head", "Count head"], 0); const zero = hash();
+ex.lift(["Span head", "Count head"], 1); const full = hash();
+const a1 = ex.anchor("Span head", "top").toArray().map((x) => +x.toFixed(1));
+ex.lift(["Span head", "Count head"], 0); const a0 = ex.anchor("Span head", "top").toArray().map((x) => +x.toFixed(1));
+ex.clear(); ex.lift(["Span head", "Count head"], t); renderer.render(scene, camera);
+window.__lift = { earlyNull: early === null, zeroSameAsPlain: zero === plain, fullDiffers: full !== plain, spanTopAtLift1: a1, spanTopAtLift0: a0, wholeCentre: c.toArray().map((x) => +x.toFixed(1)), classifierTop: top.toArray().map((x) => +x.toFixed(1)), size: ex.size.toArray().map((x) => +x.toFixed(1)) };
+</script></body></html>

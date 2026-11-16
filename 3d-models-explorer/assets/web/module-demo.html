@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Explorer module demo</title>
+<style>html,body{margin:0;height:100%;background:#060906;overflow:hidden}</style>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script></head>
+<body>
+<script type="module">
+// A host page: its own renderer, scene, camera and loop, with the explorer mounted as one object (see explorer-module.js).
+import * as THREE from "three";
+import { createExplorer } from "./explorer-module.js";
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(innerWidth, innerHeight); document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color("#060906");
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 5000);
+const ex = createExplorer({ scene, camera, base: "./", theme: "dark", height: 100 });
+await ex.load();
+ex.setPalette({ base: "#2f6f4a" });
+const q = new URLSearchParams(location.search);
+if (q.has("story")) { ex.highlight("Tokenization / embeddings", "#6cff8f", 1); ex.highlight("Encoder", "#6cff8f", 1); ex.highlight("Classifier head", "#ffb547", 1); ex.dim(["Span head", "Count head"], 0.9); }
+camera.position.set(70, 30, 170); camera.lookAt(0, 0, 0);
+function frame(t) { ex.root.rotation.y = Math.sin(t / 3000) * 0.35; renderer.render(scene, camera); requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+window.__demo = { ex, THREE, scene, camera };
+</script></body></html>

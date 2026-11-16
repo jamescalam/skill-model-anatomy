@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><title>module: low memory</title>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script></head><body style="margin:0;background:#060906">
+<script type="module">
+import * as THREE from "three"; import { createExplorer } from "./explorer-module.js";
+const q = new URLSearchParams(location.search), low = q.has("low"), missing = q.has("missing");
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(800, 520); document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color("#060906");
+const camera = new THREE.PerspectiveCamera(40, 800 / 520, 0.1, 2000); camera.position.set(40, 26, 95); camera.lookAt(0, 22, 0);
+const ex = createExplorer({ scene, camera, base: "./", lowMemory: low });
+await ex.load();
+ex.setPalette({});   // role colours, so the grain is visible
+renderer.render(scene, camera);
+window.__low = { atlas: ex.atlasSize, textures: renderer.info.memory.textures };
+</script></body></html>

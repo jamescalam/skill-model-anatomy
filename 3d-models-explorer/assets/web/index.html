@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model explorer</title>
+<style>
+  /* the colours come from one table in explorer.js, which sets these variables for the current theme */
+  :root { color-scheme: dark light; --bg: #0e1014; --panel: rgba(22, 25, 32, .92); --text: #e8eaf0; --muted: #a3abb8; --line: #2e3441;
+    --reads: #b7f542; --feeds: #ff5cf0; --self: #ffffff; --path: #a8b3cc; --pos: #f59e42; --neg: #4aa3f0; --zero: #3b4352; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden;
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #view { position: absolute; inset: 0; }
+  #view canvas { display: block; touch-action: none; }
+  .panel { z-index: 2; position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; backdrop-filter: blur(6px); }
+  button { font: inherit; color: inherit; }
+  /* the legend is small: the parts' colours and names; "Details" opens the rest. The trace card is one line; a tap opens it. */
+  #legend { top: 12px; left: 12px; padding: 8px 10px; max-width: 220px; font-size: 12px; }
+  #legend h1 { font-size: 14px; margin: 0 0 2px; font-weight: 600; }
+  #legend .sub { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  #legend button.g { display: flex; gap: 7px; align-items: center; width: 100%; padding: 4px 4px; border: 0; background: none; text-align: left; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  #legend button.g:hover, #legend button.g.on { background: rgba(127, 127, 127, .16); }
+  #legend .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  #legend .n { flex: 1; }
+  #legend .p { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+  #legend .unused .n { color: var(--muted); }
+  #legend .row { display: flex; gap: 8px 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; align-items: center; flex-wrap: wrap; }
+  #legend label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+  #legend .reset, #legend .tog { border: 1px solid var(--line); background: none; border-radius: 6px; padding: 2px 8px; cursor: pointer; color: var(--muted); font-size: 12px; }
+  #legend .tog { margin-top: 6px; }
+  #legend .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  #legend .seg button { border: 0; background: none; padding: 2px 8px; cursor: pointer; color: var(--muted); font-size: 12px; }
+  #legend .seg button.on { background: var(--text); color: var(--bg); }
+  #legend .vnote { color: var(--muted); font-size: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  #legend .vnote summary { cursor: pointer; }
+  #legend:not(.open) h1, #legend:not(.open) .sub, #legend:not(.open) .p, #legend:not(.open) button.g.unused, #legend:not(.open) .row,
+  #legend:not(.open) .vnote, #legend:not(.open) #keybox { display: none; }
+  #legend.open { max-width: 300px; max-height: calc(100% - 24px); overflow: auto; }
+  #legend.open .unused .n::after { content: " · unused"; }
+  #keybox { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); }
+  #keybox b { color: var(--text); font-weight: 600; }
+  #keybox .bar { width: 170px; height: 8px; border-radius: 4px; margin: 6px 0 2px; }
+  #keybox .ends { display: flex; justify-content: space-between; width: 170px; }
+  #keybox .rk { display: flex; gap: 7px; align-items: center; margin-top: 3px; }
+  #keybox .rk .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  #keybox .sub { margin: 6px 0 0; }
+  #keybox .kl { margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--line); line-height: 1.9; }
+  .o { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; border: 2px solid var(--muted); box-sizing: border-box; }
+  .o.up { border-color: var(--reads); } .o.down { border-color: var(--feeds); } .o.self { border-color: var(--self); }
+  #keybox .line { display: inline-block; width: 18px; height: 4px; border-radius: 2px; background: var(--path); vertical-align: 1px; margin-right: 6px; }
+  #trace { top: 12px; right: 12px; padding: 6px 10px; max-width: min(460px, calc(100% - 270px)); font-size: 12px; cursor: pointer; }
+  #trace .t { display: flex; gap: 10px; align-items: baseline; }
+  #trace b { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #trace .shape { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #trace .shape::after { content: " ▸"; }
+  #trace.open .shape::after { content: " ▾"; }
+  #trace .pin { display: none; }
+  #trace:not(.open) .det { display: none; }
+  #trace.open { max-height: calc(100% - 24px); overflow: auto; max-width: min(330px, calc(100% - 270px)); }
+  #trace.open .t { flex-wrap: wrap; }
+  #trace.open b { white-space: normal; }
+  #trace .det { margin-top: 4px; }
+  #trace .code, #tip .code { color: var(--muted); font-size: 11px; font-family: ui-monospace, "SF Mono", Menlo, monospace; margin-bottom: 4px; }
+  .f { margin-top: 3px; } .f i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; background: var(--muted); }
+  .f.up i { background: var(--reads); } .f.down i { background: var(--feeds); }
+  .f.v { color: var(--text); opacity: .9; } .f.v.num { color: var(--muted); font-size: 11px; }
+  #trace .k { margin-top: 6px; color: var(--muted); }
+  #tip { position: absolute; pointer-events: none; padding: 7px 9px; font-size: 12px; display: none; max-width: 300px; z-index: 3; }
+  #tip b { font-weight: 600; }
+  #tip .m { color: var(--muted); }
+  .label { color: var(--text); font-size: 12px; font-weight: 600; padding: 2px 6px; border-radius: 5px; background: var(--panel); border: 1px solid var(--muted);
+    white-space: nowrap; pointer-events: auto; cursor: pointer; transform: translateY(-4px); }
+  .label.unused { color: var(--muted); font-weight: 500; }
+  .label.sub { font-size: 11px; font-weight: 500; transform: translateY(4px); }
+  .label.layer, .label.part, .label.io { pointer-events: none; font-size: 11px; font-weight: 500; transform: none; }
+  .label.layer { font-weight: 600; } .label.part { color: var(--muted); border-style: dashed; } .label.io { color: var(--text); border-color: var(--path); }
+  #done { top: 56px; right: 8px; padding: 4px 14px; font-size: 12px; cursor: pointer; color: var(--text); font: inherit; }
+  #done[hidden] { display: none; }
+  #status { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+  
+  #hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 6px 12px; font-size: 12px; color: var(--muted); pointer-events: none; }
+  @media (max-width: 560px), (max-height: 520px) {
+    #legend { top: auto; bottom: 8px; left: 8px; right: 8px; max-width: none; padding: 6px 8px; }
+    #legend button.g { display: inline-flex; width: auto; padding: 3px 6px; }
+    #legend .tog { margin: 0 0 0 4px; }
+    #legend.open { max-width: none; max-height: 45%; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; }   /* the model stays visible above it; scrolls inside */
+    #legend.open .tog { position: sticky; bottom: -6px; background: var(--panel); margin-top: 6px; box-shadow: 0 0 0 6px var(--panel); }   /* the close button stays in view */
+    #trace, #trace.open { left: 8px; right: 8px; top: 8px; max-width: none; }
+    #hint { bottom: auto; top: 10px; }
+  }
+  @media (max-height: 520px) {
+    #trace:not([hidden]) ~ #hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="status">Loading the model…</div>
+<div id="legend" class="panel" hidden></div>
+<div id="trace" class="panel" hidden></div>
+<div id="tip" class="panel"></div>
+<div id="hint" class="panel" hidden>Click to explore: drag to turn, scroll to zoom</div>
+<button id="done" class="panel" hidden>Done</button>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+<script type="module" src="./explorer.js"></script>
+</body>
+</html>

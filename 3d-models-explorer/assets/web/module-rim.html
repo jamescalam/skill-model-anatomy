@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>module: rim</title>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script></head><body style="margin:0;background:#060906">
+<script type="module">
+import * as THREE from "three"; import { createExplorer } from "./explorer-module.js";
+const q = new URLSearchParams(location.search);
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(800, 520); document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color("#060906");
+const camera = new THREE.PerspectiveCamera(40, 800 / 520, 0.1, 2000); camera.position.set(45, 35, 150); camera.lookAt(0, 15, 0);
+const ex = createExplorer({ scene, camera, base: "./" });
+ex.setPalette({ base: "#17331f" });
+await ex.load();
+const front = q.has("front") ? { normal: new THREE.Vector3(0, 1, 0), offset: Number(q.get("front")), soft: 6 } : null;   // cubes below y = offset are lit
+ex.setRim("#6cff8f", Number(q.get("amount") || 1), { width: Number(q.get("width") || 0.5), boost: 1.4, front });
+renderer.render(scene, camera);
+window.__rim = { ok: true };
+</script></body></html>
