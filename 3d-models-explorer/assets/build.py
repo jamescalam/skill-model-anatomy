@@ -52,6 +52,7 @@ def read_header(path):
 LAYER = re.compile(r"(?:^|\.)(?:layer|layers|h|block|blocks|resblocks)\.(\d+)\.(.+)$")
 # The rest of a layer's module name -> (title, role, part). Checked in order; the first pattern found wins.
 PARTS = [
+    (r"(^|\.)attn\.bias$|(^|\.)(masked_bias|causal_mask|attn_mask)$", ("attention: causal mask (fixed, not learned)", "other", "attention")),
     # BERT / DeBERTa (post-norm): their names first, as base GLiNER's example draws them
     (r"attention\.output\.dense$", ("attention: output", "attn_out", "attention")),
     (r"attention\.output\.LayerNorm$", ("attention: norm", "norm", "attention")),
@@ -81,6 +82,25 @@ WHOLE = [  # a name outside the repeated blocks -> role
 ]
 WHOLE = [(re.compile(p), r) for p, r in WHOLE]
 
+def core(shape):
+    """A tensor's shape without its leading size-1 dims: [1, 1, 1024, 1024] is drawn as the 1024 x 1024 grid it is."""
+    shape = list(shape)
+    while len(shape) > 1 and shape[0] == 1:
+        shape = shape[1:]
+    return shape
+
+
+# Buffers saved beside the weights that training never changes: masks, position numbers, rotary frequencies, norm stats.
+FIXED_NAMES = re.compile(r"(^|\.)(masked_bias|position_ids|inv_freq|causal_mask|attn_mask|mask|running_mean|running_var|num_batches_tracked)$")
+
+
+def is_fixed(name, shape, dtype="F32"):
+    """True for values that aren't learned: a known buffer name, an integer or bool tensor, or a "bias" with 2+ dims
+    (GPT-2's attn.bias is its causal mask, not a bias)."""
+    return bool(FIXED_NAMES.search(name)) or not str(dtype).upper().startswith(("F", "BF", "TORCH.FLOAT", "TORCH.BFLOAT")) \
+        or (name.endswith(".bias") and len(core(shape)) >= 2)
+
+
 def describe(name):
     """A plain title, a colour role and the part of a layer for a module's name (the code name stays in `name`)."""
     m = LAYER.search(name)
@@ -109,6 +129,9 @@ class Checkpoint:
 
     def shape(self, name):
         return list(self.where[name][1]["shape"])
+
+    def dtype(self, name):
+        return self.where[name][1]["dtype"]
 
     def array(self, name):
         fi, t = self.where[name]
@@ -156,6 +179,9 @@ class TorchCheckpoint:
 
     def shape(self, name):
         return list(self.t[name].shape)
+
+    def dtype(self, name):
+        return str(self.t[name].dtype)
 
     def array(self, name):
         v = self.t[name].detach()
@@ -243,16 +269,16 @@ class Builder:
             if n in self.used:
                 sys.exit(f"{n} is in two groups")
             self.used[n] = gi
-        grids = [n for n in names if len(self.ck.shape(n)) >= 2]
-        lines = [n for n in names if len(self.ck.shape(n)) < 2]
+        grids = [n for n in names if len(core(self.ck.shape(n))) >= 2]
+        lines = [n for n in names if len(core(self.ck.shape(n))) < 2]
         placed, x, h, d = [], 0.0, 0.0, 0.0
         m0 = len(self.items)
         for n in grids:
             shp = self.ck.shape(n)
-            r, c = shp[0], int(np.prod(shp[1:]))
+            r, c = core(shp)[0], int(np.prod(core(shp)[1:]))
             w, ht = max(c / self.s, STRIP), max(r / self.s, STRIP)  # a 1-row grid still shows (its true shape is in its label)
             fn, mean, sd = self.texture(n, r, c, T, flip=flat)
-            it = dict(name=n, shape=shp, params=r * c, kind="grid", flat=flat, group=gi, tex=fn, std=sd)
+            it = dict(name=n, shape=shp, grid=[r, c], params=r * c, kind="grid", flat=flat, group=gi, tex=fn, std=sd)
             if flat:
                 if ht > CUT:   # the 128k-row vocabulary table is 2,000 units deep: draw it shortened
                     it["cut"] = dict(rows=r, drawn=CUT * self.s); ht = CUT
@@ -265,7 +291,7 @@ class Builder:
             x += w
             # its bias beside it: a strip as tall as its rows
             b = n[:-len("weight")] + "bias" if n.endswith("weight") else None
-            if b in lines and self.ck.shape(b)[0] == r and not flat:
+            if b in lines and core(self.ck.shape(b))[0] == r and not flat:
                 fnb, _, sdb = self.texture_line(b, T, vertical=True)
                 self.items.append(dict(name=b, shape=self.ck.shape(b), params=r, kind="strip", flat=False, group=gi,
                                        tex=fnb, std=sdb, pos=[x + 0.4 + STRIP / 2, -ht / 2, 0], size=[STRIP, ht]))
@@ -294,6 +320,8 @@ class Builder:
         self.mods.append(dict(name=name, items=[m0, len(self.items)], group=gi, **d0))
         for it in self.items[m0:]:
             it["mod"] = self.last_mid
+            if is_fixed(it["name"], it["shape"], self.ck.dtype(it["name"])):
+                it["fixed"] = True   # drawn like the rest, counted apart from the learned weights
         return x, -y if lines else h, d
 
     def texture_line(self, name, T, vertical):
@@ -400,7 +428,8 @@ class Builder:
             W, H, D = W + 2 * p, H + 2 * p, D + p
         g["box"] = [0.0, 0.0, 0.0, W, H, D]  # x, y, z of its top-left-front corner, then w, h, d
         g["tensors"] = sum(1 for it in self.items[first:])
-        g["params"] = int(sum(it["params"] for it in self.items[first:]))
+        g["params"] = int(sum(it["params"] for it in self.items[first:] if not it.get("fixed")))
+        g["fixed"] = int(sum(it["params"] for it in self.items[first:] if it.get("fixed")))
         return W, H, D
 
     def link(self, A, B, kind, unused=False):
@@ -518,14 +547,17 @@ class Builder:
             w, h, d = self.rows([[n] for n in rest], "", gi)
             self.shift(first, PAD, -H - CHILD_GAP - PAD, -PAD / 2)
             self.groups[gi].update(box=[0, -H - CHILD_GAP, 0, w + 2 * PAD, h + 2 * PAD, d + PAD],
-                                   tensors=len(rest), params=int(sum(it["params"] for it in self.items[first:])))
+                                   tensors=len(rest), params=int(sum(it["params"] for it in self.items[first:] if not it.get("fixed"))),
+                                   fixed=int(sum(it["params"] for it in self.items[first:] if it.get("fixed"))))
             H += CHILD_GAP + h + 2 * PAD; W = max(W, w + 2 * PAD)
         self.colour_groups()
         self.pack()
-        total = sum(int(np.prod(self.ck.shape(n))) for n in self.ck.names())
+        every = sum(int(np.prod(self.ck.shape(n))) for n in self.ck.names())
         drawn = sum(it["params"] for it in self.items)
-        assert drawn == total, (drawn, total)
-        return dict(model=self.spec.get("model", ""), scale=self.s, total=total, tensors=len(self.ck.names()),
+        assert drawn == every, (drawn, every)
+        fixed = sum(it["params"] for it in self.items if it.get("fixed"))
+        # total: the learned weights only; fixed: values saved beside them that training never changes (masks, position numbers)
+        return dict(model=self.spec.get("model", ""), scale=self.s, total=every - fixed, fixed=fixed, tensors=len(self.ck.names()),
                     size=[W, H, D], thick=THICK, atlas=self.atlas, groups=self.groups, items=self.items,
                     modules=self.mods, edges=self.edges)
 
@@ -555,9 +587,11 @@ def main():
         if f.is_file() and not f.name.startswith("module-"):   # the module's test pages stay out of a build
             dst = out / f.relative_to(web); dst.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(f, dst)
     named = [g for g in scene["groups"] if g["outline"]]
-    print(f"{scene['tensors']} tensors, {scene['total']:,} weights, {len(scene['items'])} drawn -> {out}")
+    fixed = f" (plus {scene['fixed']:,} fixed values that aren't learned: masks, position numbers)" if scene["fixed"] else ""
+    print(f"{scene['tensors']} tensors, {scene['total']:,} learned weights{fixed}, {len(scene['items'])} drawn -> {out}")
     for g in named:
-        print(f"  {' / '.join(g['path']):40s} {g['tensors']:4d} tensors {g['params']:>13,}{'  (unused)' if g['unused'] else ''}")
+        fx = f"  + {g['fixed']:,} fixed" if g.get("fixed") else ""
+        print(f"  {' / '.join(g['path']):40s} {g['tensors']:4d} tensors {g['params']:>13,}{fx}{'  (unused)' if g['unused'] else ''}")
 
 
 def shrink(spec):

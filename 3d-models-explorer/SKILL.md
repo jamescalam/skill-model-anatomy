@@ -13,19 +13,29 @@ It is a static folder (HTML, JS, one `scene.json`, one `atlas.png`), so it hosts
 ## First command
 
 ```bash
-pip install numpy pyyaml pillow        # torch too, only for a PyTorch .bin/.pt checkpoint
-python <this skill's folder>/assets/init_groups.py CHECKPOINT groups.yaml --name "Model name"
+python3 -m venv .venv && . .venv/bin/activate
+pip install numpy pyyaml pillow huggingface_hub
+hf download <org>/<model> model.safetensors config.json --local-dir ckpt
+python3 <this skill's folder>/assets/init_groups.py ckpt groups.yaml --name "Model name"
 ```
 
-`CHECKPOINT` is a folder in the Hugging Face layout (`model.safetensors`, sharded `model.safetensors.index.json`,
-or `pytorch_model.bin`), or one `.safetensors`, `.bin`, `.pt`, `.pth` or `.ckpt` file. It prints the groups it
-found. To get a Hugging Face model: `huggingface-cli download <id> --include "*.safetensors" "*.json" --local-dir ckpt`.
+- **No `python3`, or no `pip` (NixOS, some Debian):** use [uv](https://docs.astral.sh/uv/). Skip the first two
+  lines, write `uv run --with numpy,pyyaml,pillow python` wherever this file says `python3`, and
+  `uvx --from huggingface_hub hf download …` for `hf download …`.
+- **The model's real id:** Hugging Face moved many short names under an organisation: `distilgpt2` is
+  `distilbert/distilgpt2`, `gpt2` is `openai-community/gpt2`, `bert-base-uncased` is `google-bert/bert-base-uncased`.
+  The model's page shows its id at the top; `hf download` says "not found" for a wrong one.
+- **Which files:** name them. A big model's weights are sharded: list the shards and `model.safetensors.index.json`
+  (the model page's "Files" tab shows them). Only PyTorch weights? Fetch `pytorch_model.bin` and install torch.
+  `config.json` lets the draft see a tied output head. (`huggingface-cli` is the old name of `hf`.)
+- `CHECKPOINT` is that folder, or one `.safetensors`, `.bin`, `.pt`, `.pth` or `.ckpt` file. `init_groups.py`
+  prints the groups it found.
 
 ## What to do
 
 1. **Get the checkpoint, not the code.** Only the weights file's header and a sample of each tensor are read, memory-mapped:
    a 7B model builds on a laptop. Never commit or publish the weights; the page holds only a sampled picture of them.
-2. **Draft the groups:** `python <this skill's folder>/assets/init_groups.py CHECKPOINT groups.yaml`. It finds the repeated block
+2. **Draft the groups:** `python3 <this skill's folder>/assets/init_groups.py CHECKPOINT groups.yaml`. It finds the repeated block
    (`layers.{i}`, `h.{i}`, `layer.{i}`, `block.{i}`), orders one copy in the usual data flow, and puts the rest in
    "Embeddings" and "Output".
 3. **Make the groups true and readable.** Read the model's code or paper, then edit `groups.yaml`
@@ -36,18 +46,18 @@ found. To get a Hugging Face model: `huggingface-cli download <id> --include "*.
    - check each layer's rows follow the real order (pre-norm vs post-norm, parallel attention and MLP);
    - mark parts the use case never runs as `unused: true` (they draw grey);
    - add `flow` between groups and `links` for anything that skips (a head reading a middle layer).
-4. **Build:** `python <this skill's folder>/assets/build.py CHECKPOINT groups.yaml site/`. It prints each group's tensor and weight
+4. **Build:** `python3 <this skill's folder>/assets/build.py CHECKPOINT groups.yaml site/`. It prints each group's tensor and weight
    counts. "N tensors in no group, drawn under Other" means the groups file missed some: place them or leave them.
    The build checks every weight is drawn exactly once.
-5. **Look at it:** `python -m http.server -d site 8000`, open `http://localhost:8000/`. Check that the groups read
+5. **Look at it:** `python3 -m http.server -d site 8000` (any free port), open `http://localhost:8000/`. Check that the groups read
    in data-flow order, hovering a tensor traces what feeds it and what reads it, and the phone width (390 px) works.
    `?selftest` runs the page's own checks in the console.
-6. **Optional, real values:** `python <this skill's folder>/assets/capture_values.py MODEL site/values.json "an example input" --scene site/scene.json`
+6. **Optional, real values:** `python3 <this skill's folder>/assets/capture_values.py MODEL site/values.json "an example input" --scene site/scene.json`
    runs one input through the model (transformers + torch) and shows each stage's output beside it. Rebuild with it as
    the fourth argument to keep it on rebuilds.
 7. **Host and embed** ([references/hosting.md](references/hosting.md), [references/embedding.md](references/embedding.md)):
    any static host works; on Spacesheep, `npx -y spacesheep@latest deploy site --title "…"`.
-8. **Optional, shared view:** `python <this skill's folder>/assets/bundle_shared.py site shared/` makes a version where whoever turns,
+8. **Optional, shared view:** `python3 <this skill's folder>/assets/bundle_shared.py site shared/` makes a version where whoever turns,
    zooms or taps the model moves it for everyone who has it open (a Spacesheep worker space; see hosting.md).
 
 ## Reads, and what it does with the rest

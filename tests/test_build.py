@@ -77,7 +77,7 @@ def build_and_check(ck, tmp, expect_groups, n_params):
     assert "in no group" not in r.stdout   # the draft placed every tensor
     scene = json.loads((out / "scene.json").read_text())
     assert scene["total"] == n_params
-    assert sum(it["params"] for it in scene["items"]) == n_params
+    assert sum(it["params"] for it in scene["items"]) == n_params + scene["fixed"]   # every value is drawn; fixed ones counted apart
     for f in ("index.html", "explorer.js", "atlas.png", "atlas-half.png", "vendor/three.module.min.js"):
         assert (out / f).exists(), f
     assert not list(out.glob("module-*.html"))
@@ -231,3 +231,48 @@ def test_the_example_builds_the_same_roles(tmp_path):
     assert build.describe("span_rep.span_rep_layer.project_start.0")["role"] == "other"
     assert build.describe("embeddings.LayerNorm")["role"] == "norm"   # BERT's norm beside its tables
     assert build.describe("embeddings.word_embeddings")["role"] == "embed"
+
+
+def test_gpt2_with_its_mask_and_tied_head(tmp_path):
+    """Hugging Face's GPT-2 layout: a [1, 1, n, n] causal mask per layer (a buffer, not weights), the final norm
+    beside the blocks, and no head tensor (it reuses the word table)."""
+    t = {"transformer." + k: v for k, v in gpt2(layers=2).items()}
+    n = 64
+    mask = np.tril(np.ones((n, n), np.float32))[None, None]
+    for i in range(2):
+        t[f"transformer.h.{i}.attn.bias"] = mask
+    ck = tmp_path / "ckpt"; ck.mkdir()
+    write_safetensors(ck / "model.safetensors", t)
+    (ck / "config.json").write_text(json.dumps({"architectures": ["GPT2LMHeadModel"], "n_layer": 2}))
+    spec, scene = build_and_check(ck, tmp_path, ["Embeddings", "2 layers", "Output (head is the word table)"],
+                                  sum(a.size for a in t.values()) - 2 * n * n)
+    layer = spec["groups"][1]
+    assert layer["rows"] == [["ln_1"], ["attn.c_attn"], ["attn.bias"], ["attn.c_proj"], ["ln_2"], ["mlp.c_fc"], ["mlp.c_proj"]]
+    assert layer["skip"] == {"in": 3, "pairs": [[3, 6]]}   # added after attention out, then after the shrink
+    assert spec["groups"][2]["rows"] == [["transformer.ln_f"]]   # the final norm is after the blocks, not with the tables
+    assert spec["links"] == [["transformer.ln_f", "transformer.wte"]]
+    assert scene["fixed"] == 2 * n * n
+    m = next(it for it in scene["items"] if it["name"] == "transformer.h.0.attn.bias")
+    assert m["fixed"] and m["shape"] == [1, 1, n, n] and m["grid"] == [n, n] and m["size"][0] == m["size"][1]   # square, not 1 x 4096
+    titles = {x["name"]: x["title"] for x in scene["modules"]}
+    assert "causal mask" in titles["transformer.h.0.attn.bias"]
+    groups = {g["name"]: g for g in scene["groups"] if g["outline"]}
+    assert groups["2 layers"]["fixed"] == 2 * n * n and groups["Output (head is the word table)"]["role"] == "classifier"
+
+
+def test_leading_ones_are_dropped(tmp_path):
+    """A [1, 32, 8] tensor is a 32 x 8 grid, a [1, 1, 16] one a strip; the true shape stays on the card."""
+    t = {"a.weight": w(1, 32, 8), "b.weight": w(1, 1, 16), "c.weight": w(8, 8)}
+    f = tmp_path / "m.safetensors"; write_safetensors(f, t)
+    spec, scene = build_and_check(f, tmp_path, ["Model"], sum(a.size for a in t.values()))
+    items = {it["name"]: it for it in scene["items"]}
+    assert items["a.weight"]["kind"] == "grid" and items["a.weight"]["grid"] == [32, 8] and items["a.weight"]["shape"] == [1, 32, 8]
+    assert items["b.weight"]["kind"] == "strip" and scene["fixed"] == 0
+
+
+def test_llama_final_norm_comes_before_the_head(tmp_path):
+    t = llama(); ck = tmp_path / "m.safetensors"; write_safetensors(ck, t)
+    g = tmp_path / "g.yaml"; run("init_groups.py", ck, g)
+    spec = yaml.safe_load(g.read_text())
+    assert [r[0] if isinstance(r[0], str) else r[0]["m"] for r in spec["groups"][-1]["rows"]] == ["model.norm", "lm_head"] and spec["groups"][-1]["role"] == "classifier"
+    assert spec["groups"][1]["skip"] == {"in": 2, "pairs": [[2, 5]]}

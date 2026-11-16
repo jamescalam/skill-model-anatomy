@@ -442,7 +442,7 @@ addEventListener("message", (e) => {   // an article's own light/dark toggle
 // ---- panels -----------------------------------------------------------------------------------------------
 function legend() {   // collapsed: the parts' colours and names only; "Details" opens the rest
   const el = $("legend"); el.hidden = false; el.classList.remove("open");
-  el.innerHTML = `<h1>${model.model}</h1><div class="sub">${model.total.toLocaleString()} weights in ${model.tensors} tensors. Drag to turn, scroll to zoom, tap a part to fly to it.</div>`;
+  el.innerHTML = `<h1>${model.model}</h1><div class="sub">${model.total.toLocaleString()} learned weights in ${model.tensors} tensors${model.fixed ? `, plus ${model.fixed.toLocaleString()} fixed values (masks, position numbers) that aren't learned` : ""}. Drag to turn, scroll to zoom, tap a part to fly to it.</div>`;
   const tops = []; model.groups.forEach((g, gi) => { if (g.outline && g.path.length === 1) tops.push(gi); });
   for (const gi of tops) {
     const g = model.groups[gi], b = document.createElement("button");
@@ -483,7 +483,7 @@ function renderKey() {   // built from the same colours the shader uses
     el.innerHTML = `<b>Each cell is one weight (sampled)</b><div class="bar" style="background:linear-gradient(90deg,${T.neg},${T.zero} 50%,${T.pos})"></div>` +
       `<div class="ends"><span>negative</span><span>0</span><span>positive</span></div>${lines}`;
   } else {
-    const used = new Set(model.modules.map((m) => m.role));
+    const used = new Set(model.modules.filter((m) => !model.groups[m.group].unused).map((m) => m.role));   // a role only unused parts have is drawn grey, so it isn't in the key
     el.innerHTML = `<b>Colour shows what a part does</b>` + ROLE_ORDER.filter((r) => used.has(r) && r !== "other").map((r) =>
       `<div class="rk"><span class="sw" style="background:${litCss(T.roles[r])}"></span>${ROLE_NAME[r]}</div>`).join("") +
       `<div class="sub">The grain in each cube is its real weights.</div>${lines}`;
@@ -598,11 +598,12 @@ function hoverAt(e) {
   const g = model.groups[it.group], m = model.modules[it.mod];
   let cellTxt = "", cellKey = "";
   if (hit.face && hit.face.normal.z > 0.5 && it.kind === "grid" && !it.flat) {   // the cell under the pointer: its row is one output, its column one input
-    const rows = it.shape[0], cols = it.params / rows, u = hit.uv.x, v = hit.uv.y;
+    const rows = it.grid ? it.grid[0] : it.shape[0], cols = it.params / rows, u = hit.uv.x, v = hit.uv.y;
     U.uCellId.value = hit.k; U.uCell.value.set(u, v); request();
     const r = Math.min(rows - 1, Math.floor((1 - v) * rows)), c = Math.min(cols - 1, Math.floor(u * cols));
     cellKey = r + "," + c;
-    cellTxt = `<div class="f">cell: output ${r.toLocaleString()} of ${rows.toLocaleString()}, input ${c.toLocaleString()} of ${cols.toLocaleString()}: this weight scales that input in that output</div>`;
+    cellTxt = it.fixed ? `<div class="f">cell: row ${r.toLocaleString()} of ${rows.toLocaleString()}, column ${c.toLocaleString()} of ${cols.toLocaleString()}: a fixed value, not learned</div>`
+      : `<div class="f">cell: output ${r.toLocaleString()} of ${rows.toLocaleString()}, input ${c.toLocaleString()} of ${cols.toLocaleString()}: this weight scales that input in that output</div>`;
   } else U.uCellId.value = -1;
   const key = hit.k + "|" + cellKey + "|" + traced;
   if (key !== lastTip) {
@@ -610,7 +611,7 @@ function hoverAt(e) {
     tip.innerHTML = `<b></b><div class="code"></div><div class="m"></div>${cellTxt}${flowText(it.mod)}${valuesText(it.mod)}`;
     tip.querySelector("b").textContent = m.title;
     tip.querySelector(".code").innerHTML = word(it.name.replace(/&/g, "&amp;").replace(/</g, "&lt;"));
-    tip.querySelector(".m").textContent = `${it.shape.join(" × ")}${it.shape.length < 2 ? " × 1" : ""} = ${it.params.toLocaleString()} weights · ` +
+    tip.querySelector(".m").textContent = `${it.shape.join(" × ")}${it.shape.length < 2 ? " × 1" : ""} = ${it.params.toLocaleString()} ${it.fixed ? "fixed values (not learned)" : "weights"} · ` +
       g.path.filter(Boolean).join(" › ") + (g.unused ? " (unused)" : "") + (it.cut ? ` · drawn shortened (${it.cut.rows.toLocaleString()} rows in all)` : "") + ` · spread ±${it.std.toPrecision(2)}`;
   }
   tip.style.display = "block";

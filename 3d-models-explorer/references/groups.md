@@ -18,7 +18,7 @@ groups:
       - [{m: wte, lie: flat, texture: 1024}, wpe]
   - name: 12 layers
     repeat: h.{i}             # every h.0, h.1, … copy, stacked back in depth
-    skip: {in: 0, pairs: [[0, 2], [3, 5]]}   # optional: residual links (row indexes)
+    skip: {in: 2, pairs: [[2, 5]]}   # optional: residual adds (row indexes, from 0): see "Residual links" below
     rows:
       - [ln_1]
       - [attn.c_attn]
@@ -41,7 +41,7 @@ groups:
 | `arrange` | group | `down` (default) or `across`, for its children |
 | `rows` | group | top to bottom; each row is a list of modules side by side (they run in parallel) |
 | `repeat` | group | a name with `{i}`; `rows` names are then relative to it, one copy per number found |
-| `skip` | repeated group | `in`: the row a copy's input also feeds; `pairs`: [from row, to row] residual links |
+| `skip` | repeated group | residual adds, pointing forward from what is carried to where it's added: `in: k` the layer's input to row k; `pairs: [[a, b]]` row a's output to row b |
 | `chain` | group | `false` stops rows linking to the row below |
 | `unused` | group | `true` draws it grey and faded; the reader can hide it |
 | `role` | group or module | what it does: `embed`, `attn_q`, `attn_k`, `attn_v`, `attn_out`, `ff_up`, `ff_down`, `norm`, `classifier`, `other`. It sets the colour, and the page marks Input at the first `embed` group and Output at the last running `classifier` group. Without one, a group's role is the one holding most of its weights |
@@ -51,6 +51,36 @@ groups:
 | `title` | module | its name on the card, instead of the one build.py guesses |
 | `flow` | top | `[from group, to group, (side), (rows)]`; `side` links to every copy of a repeated block |
 | `links` | top | `[from module, to module, (kind)]`; kind `flow`, `side` or `skip` |
+
+## Residual links (`skip`)
+
+A skip link points **forward, from the value that is carried round to the row where it's added back in**. Rows count
+from 0, top to bottom, in one copy of the repeated block.
+
+- `in: k`: the layer's input (the previous copy's last row) is added at row k.
+- `pairs: [[a, b]]`: row a's output is added at row b.
+
+| Layout | Rows | `skip` |
+|---|---|---|
+| Pre-norm (GPT-2, Llama) | norm, qkv, attention out, norm, expand, shrink | `{in: 2, pairs: [[2, 5]]}`: added after attention out, then after shrink |
+| Post-norm (BERT) | qkv, attention out, norm, expand, shrink, norm | `{in: 2, pairs: [[2, 5]]}`: added at each half's norm (it adds, then normalises) |
+| GPT-2 with its mask row | norm, qkv, mask, attention out, norm, expand, shrink | `{in: 3, pairs: [[3, 6]]}` |
+
+`init_groups.py` drafts `skip` this way; check it against the model's forward pass.
+
+## Values that aren't learned
+
+Some checkpoints save buffers beside the weights: GPT-2's causal mask (`attn.bias`, 1 x 1 x 1024 x 1024 per layer),
+position numbers (`position_ids`), rotary frequencies, a norm's running statistics. The build draws them like any
+tensor (leading 1s dropped, so the mask is a 1024 x 1024 grid) but counts them apart: the page says "N learned
+weights, plus M fixed values". Place them in the layer like any module (`attn.bias` as its own row, between qkv and
+attention out); `init_groups.py` does.
+
+## Tied output heads
+
+Most causal language models (GPT-2, many Llamas) score their last hidden state against the word table itself: the
+checkpoint has no head tensor. With `config.json` beside the weights, `init_groups.py` names the last group
+"Output (head is the word table)" and links its final norm to the word table. Without it, add both yourself.
 
 ## Making it true
 
